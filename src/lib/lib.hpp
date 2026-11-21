@@ -54,6 +54,8 @@ struct Triangle
 {
     std::array<glm::vec3, 3> v;
     std::array<glm::vec3, 3> normal;
+    std::array<glm::vec2, 3> uv;
+    bool hasUV = true;
 };
 
 

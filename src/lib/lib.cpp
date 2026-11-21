@@ -12,7 +12,6 @@
 
 void drawLine(glm::ivec2 s, glm::ivec2 e, glm::vec3 col, Image<glm::vec3>& img)
 {
-    // Bresenham's line algorithm (integer-only, works in all octants)
     int dx = std::abs(e.x - s.x);
     int dy = -std::abs(e.y - s.y);
     int sx = s.x < e.x ? 1 : -1;
@@ -122,6 +121,13 @@ std::vector<Triangle> loadObj(const char* path)
             {
                 const auto index = mesh.indices[idx++];
                 size_t vid = index.vertex_index;
+                int t = index.texcoord_index;
+                if (t >= 0)
+                    verts.back().uv[j] = glm::vec2(attrib.texcoords[2*t], attrib.texcoords[2*t+1]);
+                else {
+                    verts.back().hasUV = false;
+                    verts.back().uv[j] = glm::vec2(0);
+                }
                 int n = index.normal_index;
                 verts.back().normal[j] = n < 0 ? glm::vec3(0) : glm::vec3(
                     attrib.normals[3*n], attrib.normals[3*n+1], attrib.normals[3*n+2]);

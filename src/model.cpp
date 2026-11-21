@@ -4,6 +4,21 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <filesystem>
+#include <memory>
+#include <stb_image.h>
+
+struct Texture {
+    int width = 0, height = 0;
+    std::unique_ptr<unsigned char, decltype(&stbi_image_free)> pixels{nullptr, stbi_image_free};
+
+    glm::vec3 sample(glm::vec2 uv) const {
+        int x = std::clamp(int(uv.x * width), 0, width - 1);
+        int y = std::clamp(int((1.f - uv.y) * height), 0, height - 1);
+        auto rgb = pixels.get() + 3 * (y * width + x);
+        return glm::vec3(rgb[0], rgb[1], rgb[2]) / 255.f;
+    }
+};
 
 class Camera
 {
@@ -21,23 +36,26 @@ struct Vertex {
     glm::vec2 screen;
     float depth, inverseW;
     glm::vec3 world, normal;
+    glm::vec2 uv;
 };
 
-Vertex vertexShader(glm::vec3 world, glm::vec3 normal, const glm::mat4& vp, glm::vec2 size)
+Vertex vertexShader(glm::vec3 world, glm::vec3 normal, glm::vec2 uv, const glm::mat4& vp, glm::vec2 size)
 {
     glm::vec4 clip = vp * glm::vec4(world, 1);
     glm::vec3 ndc = glm::vec3(clip) / clip.w;
-    return {(glm::vec2(ndc) * .5f + .5f) * size, ndc.z, 1.f / clip.w, world, normal};
+    return {(glm::vec2(ndc) * .5f + .5f) * size, ndc.z, 1.f / clip.w, world, normal, uv};
 }
 
-glm::vec3 phong(glm::vec3 world, glm::vec3 normal, glm::vec3 light, glm::vec3 eye)
+glm::vec3 phong(glm::vec3 world, glm::vec3 normal, glm::vec3 light, glm::vec3 eye, glm::vec3 albedo)
 {
     glm::vec3 n = glm::normalize(normal);
     glm::vec3 l = glm::normalize(light - world);
     glm::vec3 v = glm::normalize(eye - world);
     float diffuse = std::max(glm::dot(n, l), 0.f);
-    float specular = diffuse > 0 ? std::pow(std::max(glm::dot(glm::reflect(-l,n), v), 0.f), 32.f) : 0.f;
-    return glm::vec3(.35f,.65f,.9f) * (.12f + .78f * diffuse) + glm::vec3(.55f * specular);
+    constexpr float shininess = 16.f;
+    constexpr float specularStrength = .08f;
+    float specular = diffuse > 0 ? std::pow(std::max(glm::dot(glm::reflect(-l,n), v), 0.f), shininess) : 0.f;
+    return albedo * (.12f + .78f * diffuse) + glm::vec3(specularStrength * specular);
 }
 
 float edge(glm::vec2 a, glm::vec2 b, glm::vec2 p)
@@ -46,7 +64,7 @@ float edge(glm::vec2 a, glm::vec2 b, glm::vec2 p)
 }
 
 void rasterize(Vertex a, Vertex b, Vertex c, glm::vec3 light, glm::vec3 eye,
-               Image<glm::vec3>& image, Image<float>& depth)
+               Image<glm::vec3>& image, Image<float>& depth, const Texture* texture)
 {
     float area = edge(a.screen,b.screen,c.screen);
     if (std::abs(area) < 1e-7f) return;
@@ -61,11 +79,11 @@ void rasterize(Vertex a, Vertex b, Vertex c, glm::vec3 light, glm::vec3 eye,
             float z = w.x*a.depth + w.y*b.depth + w.z*c.depth;
             if (z >= depth.at(x,y)) continue;
             depth.at(x,y) = z;
-            // World-space attributes need perspective-correct weights.
             w *= glm::vec3(a.inverseW,b.inverseW,c.inverseW);
             w /= w.x + w.y + w.z;
+            glm::vec3 albedo = texture ? texture->sample(w.x*a.uv + w.y*b.uv + w.z*c.uv) : glm::vec3(.35f,.65f,.9f);
             image.at(x,y) = phong(w.x*a.world + w.y*b.world + w.z*c.world,
-                                  w.x*a.normal + w.y*b.normal + w.z*c.normal, light,eye);
+                                  w.x*a.normal + w.y*b.normal + w.z*c.normal, light,eye,albedo);
         }
     }
 }
@@ -76,8 +94,21 @@ int main(int argc, char** argv)
         std::cerr << "Usage: model <path.obj>\n";
         return 1;
     }
+
+    std::filesystem::path texturePath(argv[1]);
+    texturePath.replace_filename(texturePath.stem().string() + "_diffuse.tga");
+    Texture texture;
+    if (std::filesystem::exists(texturePath)) {
+        int channels;
+        texture.pixels.reset(stbi_load(texturePath.string().c_str(), &texture.width, &texture.height, &channels, 3));
+        if (!texture.pixels) {
+            std::cerr << "Cannot load texture: " << texturePath << '\n';
+            return 1;
+        }
+    }
     auto triangles = loadObj(argv[1]);
     if (triangles.empty()) return 1;
+
     glm::vec3 low = triangles.front().v[0], high = low;
     for (const auto& triangle : triangles)
         for (auto p : triangle.v) {
@@ -86,12 +117,14 @@ int main(int argc, char** argv)
         }
     glm::vec3 center = (low+high)*.5f;
     float radius = std::max(glm::length(high-low)*.5f, .001f);
-    Camera camera{center + glm::vec3(.45f,.2f,2.8f)*radius, center};
-    glm::vec3 light = center + glm::vec3(-2,3,4)*radius;
+    Camera camera{center + glm::vec3(.0f,.0f,2.0f)*radius, center};
+    glm::vec3 light = center + glm::vec3(0,0,4.f)*radius;
     Image image(1024,1024,glm::vec3(.035f));
     Image depth(image.width(),image.height(),std::numeric_limits<float>::infinity());
     glm::vec2 size(image.width(),image.height());
+
     auto vp = camera.projection(size.x/size.y,radius) * camera.view();
+
     for (const auto& triangle : triangles) {
         const auto& p = triangle.v;
         auto face = glm::cross(p[1]-p[0],p[2]-p[0]);
@@ -99,9 +132,11 @@ int main(int argc, char** argv)
         std::array<Vertex,3> vertices;
         for (int i=0;i<3;++i) {
             auto n = triangle.normal[i];
-            vertices[i] = vertexShader(p[i], glm::dot(n,n)>0 ? n : glm::normalize(face), vp,size);
+            vertices[i] = vertexShader(p[i], glm::dot(n,n)>0 ? n : glm::normalize(face), triangle.uv[i], vp,size);
         }
-        rasterize(vertices[0],vertices[1],vertices[2],light,camera.position,image,depth);
+        rasterize(vertices[0],vertices[1],vertices[2],light,camera.position,image,depth,
+                  triangle.hasUV && texture.pixels ? &texture : nullptr);
     }
+
     writeImg(image,"model.png");
 }
