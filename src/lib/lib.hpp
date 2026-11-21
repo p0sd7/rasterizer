@@ -3,18 +3,12 @@
 #include <cassert>
 #include <cstddef>
 #include <vector>
-#include <stdexcept>
+#include <memory>
+#include <stb_image.h>
 #include <array>
 
 #include <glm/glm.hpp>
 
-
-template<typename... T>
-[[noreturn]] inline void implementMe(const T&... args)
-{
-    (((void)args),...);
-    throw std::runtime_error("Implement me!");
-}
 
 template<typename PixelType>
 class Image
@@ -59,13 +53,27 @@ struct Triangle
 };
 
 
+struct Texture {
+    int width = 0, height = 0;
+    std::unique_ptr<unsigned char, decltype(&stbi_image_free)> pixels{nullptr, stbi_image_free};
+
+    glm::vec3 sample(glm::vec2 uv) const;
+};
+
+struct Vertex {
+    glm::vec2 screen;
+    float depth, inverseW;
+    glm::vec3 world, normal;
+    glm::vec2 uv;
+};
+
+Vertex vertexShader(glm::vec3 world, glm::vec3 normal, glm::vec2 uv, const glm::mat4& vp, glm::vec2 size);
+glm::vec3 fragmentShader(glm::vec3 world, glm::vec3 normal, glm::vec2 uv,
+                         glm::vec3 light, glm::vec3 eye, const Texture* texture);
+
 void drawLine(glm::ivec2 s, glm::ivec2 e, glm::vec3 col, Image<glm::vec3>& img);
 
-void drawWireframeTriangle(glm::ivec2 a, glm::ivec2 b, glm::ivec2 c, glm::vec3 col, Image<glm::vec3>& img);
-
 void drawLine(glm::vec2 s, glm::vec2 e, glm::vec3 col, Image<glm::vec3>& img);
-
-void drawWireframeTriangle(glm::vec2 a, glm::vec2 b, glm::vec2 c, glm::vec3 col, Image<glm::vec3>& img);
 
 
 void writeImg(const Image<glm::vec3>& img, const char* path, bool flipY=true);

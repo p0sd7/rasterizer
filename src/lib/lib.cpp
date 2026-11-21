@@ -5,10 +5,36 @@
 #include <cmath>
 
 #include <tiny_obj_loader.h>
-#include <glm/ext.hpp>
-#include <glm/ext/vector_float3.hpp>
 #include <stb_image_write.h>
 
+
+Vertex vertexShader(glm::vec3 world, glm::vec3 normal, glm::vec2 uv, const glm::mat4& vp, glm::vec2 size)
+{
+    glm::vec4 clip = vp * glm::vec4(world, 1);
+    glm::vec3 ndc = glm::vec3(clip) / clip.w;
+    return {(glm::vec2(ndc) * .5f + .5f) * size, ndc.z, 1.f / clip.w, world, normal, uv};
+}
+
+glm::vec3 Texture::sample(glm::vec2 uv) const {
+    int x = std::clamp(int(uv.x * width), 0, width - 1);
+    int y = std::clamp(int((1.f - uv.y) * height), 0, height - 1);
+    auto rgb = pixels.get() + 3 * (y * width + x);
+    return glm::vec3(rgb[0], rgb[1], rgb[2]) / 255.f;
+}
+
+glm::vec3 fragmentShader(glm::vec3 world, glm::vec3 normal, glm::vec2 uv,
+                         glm::vec3 light, glm::vec3 eye, const Texture* texture)
+{
+    glm::vec3 albedo = texture ? texture->sample(uv) : glm::vec3(.35f,.65f,.9f);
+	glm::vec3 n = glm::normalize(normal); // normal
+    glm::vec3 l = glm::normalize(light - world); // from object to light
+	glm::vec3 v = glm::normalize(eye - world); // from object to camera
+    float diffuse = std::max(glm::dot(n, l), 0.f);
+    constexpr float shininess = 16.f;
+    constexpr float specularStrength = .08f;
+    float specular = diffuse > 0 ? std::pow(std::max(glm::dot(glm::reflect(-l,n), v), 0.f), shininess) : 0.f;
+    return albedo * (.12f + .78f * diffuse) + glm::vec3(specularStrength * specular);
+}
 
 void drawLine(glm::ivec2 s, glm::ivec2 e, glm::vec3 col, Image<glm::vec3>& img)
 {
@@ -43,13 +69,6 @@ void drawLine(glm::ivec2 s, glm::ivec2 e, glm::vec3 col, Image<glm::vec3>& img)
     }
 }
 
-void drawWireframeTriangle(glm::ivec2 a, glm::ivec2 b, glm::ivec2 c, glm::vec3 col, Image<glm::vec3>& img)
-{
-    drawLine(a, b, col, img);
-    drawLine(b, c, col, img);
-    drawLine(c, a, col, img);
-}
-
 void drawLine(glm::vec2 s, glm::vec2 e, glm::vec3 col, Image<glm::vec3>& img)
 {
     glm::vec2 max(glm::ivec2(img.width() - 1, img.height() - 1));
@@ -58,12 +77,6 @@ void drawLine(glm::vec2 s, glm::vec2 e, glm::vec3 col, Image<glm::vec3>& img)
         glm::ivec2(e * max),
         col,
         img);
-}
-
-void drawWireframeTriangle(glm::vec2 a, glm::vec2 b, glm::vec2 c, glm::vec3 col, Image<glm::vec3>& img)
-{
-    glm::vec2 max(glm::ivec2(img.width() - 1, img.height() - 1));
-    drawWireframeTriangle(glm::ivec2(a * max), glm::ivec2(b * max), glm::ivec2(c * max), col, img);
 }
 
 void writeImg(const Image<glm::vec3>& img, const char* path, bool flipY)

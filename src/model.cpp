@@ -5,20 +5,7 @@
 #include <iostream>
 #include <limits>
 #include <filesystem>
-#include <memory>
 #include <stb_image.h>
-
-struct Texture {
-    int width = 0, height = 0;
-    std::unique_ptr<unsigned char, decltype(&stbi_image_free)> pixels{nullptr, stbi_image_free};
-
-    glm::vec3 sample(glm::vec2 uv) const {
-        int x = std::clamp(int(uv.x * width), 0, width - 1);
-        int y = std::clamp(int((1.f - uv.y) * height), 0, height - 1);
-        auto rgb = pixels.get() + 3 * (y * width + x);
-        return glm::vec3(rgb[0], rgb[1], rgb[2]) / 255.f;
-    }
-};
 
 class Camera
 {
@@ -31,32 +18,6 @@ public:
         return glm::perspective(glm::radians(45.f), aspect, radius * .01f, radius * 20.f);
     }
 };
-
-struct Vertex {
-    glm::vec2 screen;
-    float depth, inverseW;
-    glm::vec3 world, normal;
-    glm::vec2 uv;
-};
-
-Vertex vertexShader(glm::vec3 world, glm::vec3 normal, glm::vec2 uv, const glm::mat4& vp, glm::vec2 size)
-{
-    glm::vec4 clip = vp * glm::vec4(world, 1);
-    glm::vec3 ndc = glm::vec3(clip) / clip.w;
-    return {(glm::vec2(ndc) * .5f + .5f) * size, ndc.z, 1.f / clip.w, world, normal, uv};
-}
-
-glm::vec3 phong(glm::vec3 world, glm::vec3 normal, glm::vec3 light, glm::vec3 eye, glm::vec3 albedo)
-{
-    glm::vec3 n = glm::normalize(normal);
-    glm::vec3 l = glm::normalize(light - world);
-    glm::vec3 v = glm::normalize(eye - world);
-    float diffuse = std::max(glm::dot(n, l), 0.f);
-    constexpr float shininess = 16.f;
-    constexpr float specularStrength = .08f;
-    float specular = diffuse > 0 ? std::pow(std::max(glm::dot(glm::reflect(-l,n), v), 0.f), shininess) : 0.f;
-    return albedo * (.12f + .78f * diffuse) + glm::vec3(specularStrength * specular);
-}
 
 float edge(glm::vec2 a, glm::vec2 b, glm::vec2 p)
 {
@@ -81,9 +42,10 @@ void rasterize(Vertex a, Vertex b, Vertex c, glm::vec3 light, glm::vec3 eye,
             depth.at(x,y) = z;
             w *= glm::vec3(a.inverseW,b.inverseW,c.inverseW);
             w /= w.x + w.y + w.z;
-            glm::vec3 albedo = texture ? texture->sample(w.x*a.uv + w.y*b.uv + w.z*c.uv) : glm::vec3(.35f,.65f,.9f);
-            image.at(x,y) = phong(w.x*a.world + w.y*b.world + w.z*c.world,
-                                  w.x*a.normal + w.y*b.normal + w.z*c.normal, light,eye,albedo);
+            glm::vec3 world = w.x*a.world + w.y*b.world + w.z*c.world;
+            glm::vec3 normal = w.x*a.normal + w.y*b.normal + w.z*c.normal;
+            glm::vec2 uv = w.x*a.uv + w.y*b.uv + w.z*c.uv;
+            image.at(x,y) = fragmentShader(world, normal, uv, light, eye, texture);
         }
     }
 }
