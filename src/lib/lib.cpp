@@ -12,12 +12,43 @@
 
 void drawLine(glm::ivec2 s, glm::ivec2 e, glm::vec3 col, Image<glm::vec3>& img)
 {
-    implementMe(s, e, col, img);
+    // Bresenham's line algorithm (integer-only, works in all octants)
+    int dx = std::abs(e.x - s.x);
+    int dy = -std::abs(e.y - s.y);
+    int sx = s.x < e.x ? 1 : -1;
+    int sy = s.y < e.y ? 1 : -1;
+    int err = dx + dy;
+
+    int x = s.x;
+    int y = s.y;
+    while (true)
+    {
+        if (x >= 0 && x < img.width() && y >= 0 && y < img.height())
+        {
+            img.at(x, y) = col;
+        }
+        if (x == e.x && y == e.y)
+            break;
+
+        int e2 = 2 * err;
+        if (e2 >= dy)
+        {
+            err += dy;
+            x += sx;
+        }
+        if (e2 <= dx)
+        {
+            err += dx;
+            y += sy;
+        }
+    }
 }
 
 void drawWireframeTriangle(glm::ivec2 a, glm::ivec2 b, glm::ivec2 c, glm::vec3 col, Image<glm::vec3>& img)
 {
-    implementMe(a, b, c, col, img);
+    drawLine(a, b, col, img);
+    drawLine(b, c, col, img);
+    drawLine(c, a, col, img);
 }
 
 void drawLine(glm::vec2 s, glm::vec2 e, glm::vec3 col, Image<glm::vec3>& img)
@@ -89,7 +120,11 @@ std::vector<Triangle> loadObj(const char* path)
             verts.emplace_back();
             for (size_t j = 0; j < mesh.num_face_vertices[i]; j++)
             {
-                size_t vid = mesh.indices[idx++].vertex_index;
+                const auto index = mesh.indices[idx++];
+                size_t vid = index.vertex_index;
+                int n = index.normal_index;
+                verts.back().normal[j] = n < 0 ? glm::vec3(0) : glm::vec3(
+                    attrib.normals[3*n], attrib.normals[3*n+1], attrib.normals[3*n+2]);
                 verts.back().v[j] = glm::vec3(
                     attrib.vertices[vid * 3 + 0],
                     attrib.vertices[vid * 3 + 1],

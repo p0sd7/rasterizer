@@ -53,6 +53,7 @@ private:
 struct Triangle
 {
     std::array<glm::vec3, 3> v;
+    std::array<glm::vec3, 3> normal;
 };
 
 

@@ -3,16 +3,14 @@
 
 int main()
 {
-    Image img(64, 64, glm::vec3(0.0f));
+    Image img(1920, 1080, glm::vec3(0.0f));
 
-    img.at(10, 20) = glm::vec3(1.0f, 2.0f, 3.0) / 255.0f;
-    img.at(11, 20) = glm::vec3(10.0, 11.0f, 12.0) / 255.0f;
-    img.at(12, 20) = glm::vec3(100.0, 101.0, 102.0f) / 255.0f;
-
-    img.at(10, 21) = glm::vec3(253.0f, 0.0, 0.0) / 255.f;
-    img.at(11, 21) = glm::vec3(0.0, 254.0f, 0.0) / 255.f;
-    img.at(12, 21) = glm::vec3(0.0, 0.0, 255.0f) / 255.f;
-
+    for (int i = 0; i < img.width(); ++i) {
+        for (int j = 0; j < img.height(); ++j) {
+            glm::vec3 col{ (static_cast<float>(i) / static_cast<float>(img.width()) - 1.0f), (static_cast<float>(j) / static_cast<float>(img.height() - 1.0f)), 0.0 };
+            img.at(i, j) = col;
+        }
+    }
     writeImg(img, "points.png");
 
     return 0;
